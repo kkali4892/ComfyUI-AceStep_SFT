@@ -9,6 +9,11 @@ Um node all-in-one para [ComfyUI](https://github.com/comfyanonymous/ComfyUI) que
 
 ## 📋 Visão Geral
 
+Este pacote atualmente fornece dois nodes em `audio/AceStep SFT`:
+
+- **AceStep 1.5 SFT Generate**: geração, edição e decodificação all-in-one
+- **AceStep 1.5 SFT Lora Loader**: construtor encadeável de stack de LoRA para AceStep 1.5 SFT
+
 O **AceStepSFTGenerate** é um node unificado que encapsula todo o fluxo de trabalho de geração de música:
 
 1. **Criação de Latentes** - Gera latentes iniciais ou carrega a partir de áudio fonte
@@ -56,6 +61,19 @@ O node suporta três modos de guidance classif-livres, cada um com característi
 - **Transferência de Timbre**: Áudio de referência para transferência de estilo
 - **Tamanho de Lote**: Gere múltiplas variações em paralelo
 
+### 🧠 Controle Estendido de Conditioning
+
+- **Guidance separada para texto/letra**: `guidance_scale_text` e `guidance_scale_lyric`
+- **Omega Scale**: reweighting com preservação da média para aproximar o scheduler do AceStep
+- **Aproximação ERG**: reweighting local da energia do prompt via `erg_scale`
+- **Decaimento do intervalo de guidance**: reduz a força da guidance dentro da faixa ativa
+
+### 🎚️ Workflow com LoRA do AceStep
+
+- **Lora Loader encadeável**: empilhe um ou mais LoRAs antes da geração
+- **Forças separadas**: `strength_model` e `strength_clip` independentes
+- **Input único no Generate**: a stack final entra no input `lora`
+
 ### 🛠️ Pós-processamento Latente
 
 - **Latent Shift**: Correção anti-clipping aditiva
@@ -77,7 +95,7 @@ O node suporta três modos de guidance classif-livres, cada um com característi
 1. Clone o repositório na pasta de custom nodes:
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/seu-usuario/ComfyUI-AceStep_SFT.git
+git clone https://github.com/jeankassio/ComfyUI-AceStep_SFT.git
 ```
 
 2. Os arquivos de modelo devem ser colocados em:
@@ -85,9 +103,29 @@ git clone https://github.com/seu-usuario/ComfyUI-AceStep_SFT.git
 ComfyUI/models/diffusion_models/     # arquivo .safetensors do model DiT
 ComfyUI/models/text_encoders/        # arquivos dos encoders CLIP
 ComfyUI/models/vae/                  # arquivo da VAE
+ComfyUI/models/loras/                # LoRAs opcionais do AceStep 1.5
 ```
 
 3. Reinicie o ComfyUI - o node aparecerá em `audio/AceStep SFT`
+
+## 🧩 Nodes Disponíveis
+
+### AceStep 1.5 SFT Generate
+
+Node principal all-in-one para text-to-music, edição com áudio fonte, transferência de estilo com áudio de referência e decodificação via VAE.
+
+### AceStep 1.5 SFT Lora Loader
+
+Node utilitário encadeável que monta uma stack de LoRA para o AceStep 1.5 SFT.
+
+Entradas:
+- `lora_name`: arquivo LoRA em `ComfyUI/models/loras`
+- `strength_model`: força aplicada ao diffusion model
+- `strength_clip`: força aplicada à pilha de text encoders
+- `lora` (opcional): stack AceStep LoRA vinda de outro loader
+
+Saída:
+- `lora`: conecte em outro Lora Loader ou diretamente no Generate
 
 ## 🎛️ Parâmetros do Node
 
@@ -103,13 +141,13 @@ ComfyUI/models/vae/                  # arquivo da VAE
 | **lyrics** | - | Letras ou `[Instrumental]` |
 | **instrumental** | boolean | Força modo instrumental (sobrescreve letras) |
 | **seed** | 0 - 2^64 | Seed para reprodutibilidade |
-| **steps** | 1 - 200 | Passos de difusão (padrão: 32) |
-| **cfg** | 1.0 - 20.0 | Classifier-free guidance scale (padrão: 7.0) |
+| **steps** | 1 - 200 | Passos de difusão (padrão: 60) |
+| **cfg** | 1.0 - 20.0 | Classifier-free guidance scale (padrão: 15.0) |
 | **sampler_name** | - | Sampler (euler, dpmpp, etc.) |
-| **scheduler** | - | Scheduler (karras, exponential, etc.) |
+| **scheduler** | - | Scheduler (normal, karras, exponential, etc.; padrão: normal) |
 | **denoise** | 0.0 - 1.0 | Força de denoising (1.0 = novo, < 1.0 = edição) |
 | **guidance_mode** | apg/adg/standard_cfg | Tipo de guidance (padrão: apg) |
-| **duration** | 0.0 - 600.0 | Duração em segundos (0 = auto) |
+| **duration** | 0.0 - 600.0 | Duração em segundos (padrão: 60.0, 0 = auto) |
 | **bpm** | 0 - 300 | BPM (0 = auto, modelo decide) |
 | **timesignature** | auto/2/3/4/6 | Numerador da fórmula de compasso |
 | **language** | - | Idioma da letra (en, ja, zh, es, pt, etc.) |
@@ -123,6 +161,7 @@ ComfyUI/models/vae/                  # arquivo da VAE
 #### Entradas de Áudio
 - **source_audio**: Áudio para denoising/edição com `denoise < 1.0`
 - **reference_audio**: Áudio de referência para transferência de timbre/estilo
+- **lora**: stack AceStep LoRA vinda de um ou mais nodes `AceStep 1.5 SFT Lora Loader`
 
 #### Configuração LLM (Geração de Códigos de Áudio)
 - **generate_audio_codes** (default: True): Ativar/desativar geração LLM
@@ -136,10 +175,21 @@ ComfyUI/models/vae/                  # arquivo da VAE
 #### Pós-processamento de Latentes
 - **latent_shift** (-0.2-0.2, default: 0.0): Shift aditivo (anti-clipping)
 - **latent_rescale** (0.5-1.5, default: 1.0): Scaling multiplicativo
+- **normalize_peak** (default: False): Normalização de pico opcional após o decode da VAE
+- **voice_boost** (-12.0-12.0, default: 0.0): Ganho simples em dB com soft clipping
 
 #### Configuração APG
 - **apg_momentum** (-1.0-1.0, default: -0.75): Coeficiente do buffer de momentum
 - **apg_norm_threshold** (0.0-10.0, default: 2.5): Threshold de norma para clipping
+
+#### Controles Estendidos de Guidance
+- **guidance_interval** (-1.0-1.0, default: 0.5): Controle centralizado do intervalo oficial de guidance
+- **guidance_interval_decay** (0.0-1.0, default: 0.0): Decaimento linear dentro do intervalo ativo
+- **min_guidance_scale** (0.0-30.0, default: 3.0): Limite inferior quando o decaimento está habilitado
+- **guidance_scale_text** (-1.0-30.0, default: -1.0): Guidance do branch de texto, `-1` herda `cfg`
+- **guidance_scale_lyric** (-1.0-30.0, default: -1.0): Guidance do delta de letra, `-1` herda `cfg`
+- **omega_scale** (-8.0-8.0, default: 0.0): Reweighting da saída com preservação da média
+- **erg_scale** (-0.9-2.0, default: 0.0): Reweighting da energia do conditioning de prompt/letra
 
 #### Intervalo de Guidance
 - **cfg_interval_start** (0.0-1.0, default: 0.0): Iniciar guidance nesta fração do schedule
@@ -294,17 +344,20 @@ O node foi engenheirado para **replicar pixel-por-pixel** o pipeline oficial:
 
 ## 🎨 Exemplos de Workflow
 
-### Exemplo 1: Geração Básica (Recomendado)
+### Exemplo 1: Baseline de Qualidade (Recomendado)
 
 ```
 AceStepSFTGenerate:
   caption: "upbeat electronic dance music with synthesizers"
   lyrics: [Instrumental]
-  duration: 0 (auto)
-  cfg: 7.0
-  steps: 32
+  instrumental: True
+  duration: 60.0
+  cfg: 15.0
+  steps: 60
+  sampler_name: "euler"
+  scheduler: "normal"
   guidance_mode: "apg"
-  → Gera 30s de música eletrônica de alta qualidade
+  → Gera um render de 60s com a baseline forte de qualidade
 ```
 
 ### Exemplo 2: Edição de Áudio Fonte
@@ -338,6 +391,25 @@ AceStepSFTGenerate:
   → Cria 4 variações com características similares
 ```
 
+### Exemplo 5: LoRAs Encadeados
+
+```
+AceStep 1.5 SFT Lora Loader:
+  lora_name: "Ace-Step1.5/ace-step15-style1.safetensors"
+  strength_model: 0.7
+  strength_clip: 0.0
+  ↓
+AceStep 1.5 SFT Lora Loader:
+  lora_name: "Ace-Step1.5/Ace-Step1.5-TechnoRain.safetensors"
+  strength_model: 0.35
+  strength_clip: 0.0
+  ↓
+AceStep 1.5 SFT Generate:
+  lora: (saída da stack)
+```
+
+Observação: os LoRAs do AceStep agora são suportados diretamente por este pacote. Se um LoRA específico gerar áudio instável, comece reduzindo `strength_model` e compare `apg` com `standard_cfg`.
+
 ## 🐛 Troubleshooting
 
 ### Áudio com Distorção/Clipping
@@ -352,8 +424,16 @@ AceStepSFTGenerate:
 
 **Solução**: 
 1. Use `guidance_mode: "apg"` (recomendado)
-2. Aumente `steps` (ex: 50-100 para qualidade máxima)
-3. Ajuste `cfg` para 6.0-8.0
+2. Use a baseline `steps: 60`, `cfg: 15.0`, `sampler_name: "euler"`, `scheduler: "normal"`
+3. Mantenha `normalize_peak: False` para preservar a dinâmica natural do modelo
+
+### LoRA Soando Deformado ou Forte Demais
+
+**Solução**:
+1. Reduza `strength_model` primeiro, por exemplo `0.2` a `0.6`
+2. Deixe `strength_clip` em `0.0` a menos que o LoRA também tenha sido treinado para os text encoders
+3. Compare `guidance_mode: "standard_cfg"` com `"apg"` para esse LoRA
+4. Evite empilhar múltiplos LoRAs fortes todos em `1.0`
 
 ### Geração Lenta
 
