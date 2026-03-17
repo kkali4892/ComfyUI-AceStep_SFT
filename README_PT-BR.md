@@ -9,9 +9,10 @@ Um node all-in-one para [ComfyUI](https://github.com/comfyanonymous/ComfyUI) que
 
 ## 📋 Visão Geral
 
-Este pacote atualmente fornece dois nodes em `audio/AceStep SFT`:
+Este pacote atualmente fornece três nodes em `audio/AceStep SFT`:
 
 - **AceStep 1.5 SFT Generate**: geração, edição e decodificação all-in-one
+- **AceStep 1.5 SFT Music Analyzer**: análise de áudio com IA (tags, BPM, tom/escala)
 - **AceStep 1.5 SFT Lora Loader**: construtor encadeável de stack de LoRA para AceStep 1.5 SFT
 
 O **AceStepSFTGenerate** é um node unificado que encapsula todo o fluxo de trabalho de geração de música:
@@ -54,6 +55,29 @@ O node suporta três modos de guidance classif-livres, cada um com característi
 - **Codificação LLM**: Utilize Qwen LLM (0.6B ou 1.7B/4B) para gerar códigos semânticos de áudio
 - **Valores Auto**: BPM, Time Signature e Key/Scale automáticos (modelo decide)
 - **Suporte multilíngue**: Mais de 23 idiomas suportados
+
+### 🎧 Analisador Musical com IA
+
+- **Extração de Tags**: Selecione entre 9 modelos de IA para extrair tags descritivas de áudio
+- **Detecção de BPM**: Detecção automática de tempo via librosa
+- **Detecção de Tom/Escala**: Detecta tonalidade e escala (ex: "G minor")
+- **Saída JSON**: Output estruturado `music_infos` com todos os resultados
+- **Parâmetros de Geração**: Controle de temperature, top_p, top_k, repetition_penalty e seed
+- **Download Automático**: Modelos são baixados no primeiro uso (~1-7 GB cada)
+
+#### Modelos de Análise Disponíveis (ordenados por qualidade):
+
+| Modelo | Tamanho | Tipo | Ideal Para |
+|--------|---------|------|------------|
+| Qwen2-Audio-7B-Instruct | 7B | Generativo | Tags mais específicas e relevantes |
+| Qwen2.5-Omni-3B | 3B | Generativo | Bom equilíbrio especificidade/acurácia |
+| Ke-Omni-R-3B | 3B | Generativo | Boa variedade, inferência rápida |
+| Qwen2.5-Omni-7B | 7B | Generativo | Alta qualidade, modelo maior |
+| AST-AudioSet | 87M | Classificador | Classificação de gênero |
+| MERT-v1-330M | 330M | Encoder | Embeddings musicais (heurística) |
+| Whisper-large-v2-captioning | 1.5B | Captioning | Descrição geral de áudio |
+| Whisper-small-captioning | 244M | Captioning | Captioning leve |
+| Whisper-tiny-captioning | 39M | Captioning | Mais rápido, menos preciso |
 
 ### 🔄 Edição e Transferência de Estilo
 
@@ -114,6 +138,26 @@ ComfyUI/models/loras/                # LoRAs opcionais do AceStep 1.5
 
 Node principal all-in-one para text-to-music, edição com áudio fonte, transferência de estilo com áudio de referência e decodificação via VAE.
 
+### AceStep 1.5 SFT Music Analyzer
+
+Node de análise de áudio com IA que extrai tags descritivas, BPM e tom/escala a partir de áudio.
+
+Entradas:
+- `audio`: Áudio de entrada para análise
+- `model`: Seleção do modelo de IA (9 modelos, download automático)
+- `get_tags` / `get_bpm` / `get_keyscale`: Ativar/desativar cada análise
+- `max_new_tokens`: Máximo de tokens para modelos generativos
+- `audio_duration`: Máximo de segundos de áudio para análise
+- `temperature`, `top_p`, `top_k`, `repetition_penalty`, `seed`: Parâmetros de geração
+- `unload_model`: Liberar VRAM após análise
+- `use_flash_attn`: Ativar Flash Attention 2 (se compatível)
+
+Saídas:
+- `tags`: Tags descritivas separadas por vírgula (STRING)
+- `bpm`: BPM detectado, ex: "129bpm" (STRING)
+- `keyscale`: Tom e escala, ex: "G minor" (STRING)
+- `music_infos`: JSON com todos os resultados (STRING)
+
 ### AceStep 1.5 SFT Lora Loader
 
 Node utilitário encadeável que monta uma stack de LoRA para o AceStep 1.5 SFT.
@@ -164,7 +208,7 @@ Saída:
 - **lora**: stack AceStep LoRA vinda de um ou mais nodes `AceStep 1.5 SFT Lora Loader`
 
 #### Configuração LLM (Geração de Códigos de Áudio)
-- **generate_audio_codes** (default: True): Ativar/desativar geração LLM
+- **generate_audio_codes** (default: True): Ativar/desativar geração de códigos de áudio via LLM para estrutura semântica
 - **lm_cfg_scale** (0.0-100.0, default: 2.0): CFG scale para LLM
 - **lm_temperature** (0.0-2.0, default: 0.85): Temperatura de sampling
 - **lm_top_p** (0.0-2000.0, default: 0.9): Nucleus sampling
@@ -378,8 +422,8 @@ AceStepSFTGenerate:
   reference_audio: (piano sample)
   caption: "upbeat pop song"
   lyrics: "Verse 1..."
-  generate_audio_codes: False
-  → Sintetiza usando características tímbricas do piano
+  → Sintetiza nova música usando características tímbricas do piano
+     (audio_codes continuam sendo gerados para estrutura semântica)
 ```
 
 ### Exemplo 4: Geração em Lote com Seed Variado
@@ -409,6 +453,23 @@ AceStep 1.5 SFT Generate:
 ```
 
 Observação: os LoRAs do AceStep agora são suportados diretamente por este pacote. Se um LoRA específico gerar áudio instável, comece reduzindo `strength_model` e compare `apg` com `standard_cfg`.
+
+### Exemplo 6: Pipeline Análise Musical → Geração
+
+```
+AceStepSFTMusicAnalyzer:
+  audio: (arquivo de áudio de entrada)
+  model: "Qwen2-Audio-7B-Instruct"
+  → tags: "dancehall beat, powerful bassline, vocal samples, melancholic"
+  → bpm: "129bpm"
+  → keyscale: "G minor"
+  ↓
+AceStepSFTGenerate:
+  caption: (tags do analyzer)
+  bpm: 129
+  keyscale: "G minor"
+  → Gera nova música seguindo o estilo analisado
+```
 
 ## 🐛 Troubleshooting
 
