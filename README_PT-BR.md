@@ -97,6 +97,9 @@ O node suporta três modos de guidance classif-livres, cada um com característi
 - **Lora Loader encadeável**: empilhe um ou mais LoRAs antes da geração
 - **Forças separadas**: `strength_model` e `strength_clip` independentes
 - **Input único no Generate**: a stack final entra no input `lora`
+- **Pasta local `Loras/`**: solte arquivos LoRA diretamente na pasta `Loras/` do node — são registrados automaticamente na inicialização
+- **Conversão automática PEFT/DoRA**: LoRAs em formato PEFT (`adapter_config.json` + `adapter_model.safetensors`) colocados em `Loras/` são convertidos automaticamente para formato ComfyUI na primeira inicialização
+- **Suporte DoRA**: Suporte completo a DoRA (Weight-Decomposed Low-Rank Adaptation) com correção automática de dimensão do `dora_scale` para compatibilidade com ComfyUI
 
 ### 🛠️ Pós-processamento Latente
 
@@ -130,7 +133,16 @@ ComfyUI/models/vae/                  # arquivo da VAE
 ComfyUI/models/loras/                # LoRAs opcionais do AceStep 1.5
 ```
 
-3. Reinicie o ComfyUI - o node aparecerá em `audio/AceStep SFT`
+3. **(Opcional) Coloque LoRAs na pasta local:**
+```
+ComfyUI/custom_nodes/ComfyUI-AceStep_SFT/Loras/   # Pasta local de LoRAs
+```
+   Você pode colocar LoRAs aqui em **qualquer** um destes formatos:
+   - **Formato ComfyUI**: Arquivo `.safetensors` único (pronto para uso)
+   - **Formato PEFT/DoRA**: Pasta contendo `adapter_config.json` + `adapter_model.safetensors` (convertido automaticamente na inicialização)
+   - **Artefatos de zip aninhados**: Se o zip extraiu uma pasta-dentro-de-pasta, o node detecta e corrige automaticamente
+
+4. Reinicie o ComfyUI - o node aparecerá em `audio/AceStep SFT`
 
 ## 🧩 Nodes Disponíveis
 
@@ -163,13 +175,26 @@ Saídas:
 Node utilitário encadeável que monta uma stack de LoRA para o AceStep 1.5 SFT.
 
 Entradas:
-- `lora_name`: arquivo LoRA em `ComfyUI/models/loras`
+- `lora_name`: arquivo LoRA em `ComfyUI/models/loras` ou na pasta local `Loras/`
 - `strength_model`: força aplicada ao diffusion model
 - `strength_clip`: força aplicada à pilha de text encoders
 - `lora` (opcional): stack AceStep LoRA vinda de outro loader
 
 Saída:
 - `lora`: conecte em outro Lora Loader ou diretamente no Generate
+
+#### Formatos de LoRA Suportados
+
+| Formato | O que colocar em `Loras/` | Ação |
+|---------|--------------------------|------|
+| ComfyUI `.safetensors` | Arquivo único | Usado diretamente |
+| Diretório PEFT/DoRA | Pasta com `adapter_config.json` + `adapter_model.safetensors` | Auto-convertido para `*_comfyui.safetensors` na inicialização |
+| Artefato de zip aninhado | Pasta contendo um `.safetensors` dentro | Auto-extraído para a raiz na inicialização |
+
+A auto-conversão trata:
+- Remapeamento de chaves: `lora_A`/`lora_B` → `lora_down`/`lora_up`
+- Suporte DoRA: `lora_magnitude_vector` → `dora_scale` (com shape 2D correto)
+- Injeção de alpha por camada a partir do `adapter_config.json` (suporta `alpha_pattern` e `rank_pattern`)
 
 ## 🎛️ Parâmetros do Node
 
@@ -495,6 +520,20 @@ AceStepSFTGenerate:
 2. Deixe `strength_clip` em `0.0` a menos que o LoRA também tenha sido treinado para os text encoders
 3. Compare `guidance_mode: "standard_cfg"` com `"apg"` para esse LoRA
 4. Evite empilhar múltiplos LoRAs fortes todos em `1.0`
+
+### Erro de Dimensão no LoRA (`The size of tensor a must match...`)
+
+**Causa**: LoRAs DoRA armazenam `dora_scale` como tensor 1D `[N]`. A função `weight_decompose` do ComfyUI divide por `weight_norm [N,1]`, o que faz o PyTorch transmitir como `[1,N]/[N,1]` → `[N,N]` em vez do esperado `[N,1]`.
+
+**Solução**: Isso é corrigido automaticamente pelo node — todos os tensores `dora_scale` são expandidos para 2D `[N,1]` no momento do carregamento. Se você ainda vir esse erro, certifique-se de estar usando a versão mais recente deste node.
+
+### LoRA PEFT/DoRA Não Aparece no Dropdown
+
+**Solução**:
+1. Coloque a pasta PEFT (contendo `adapter_config.json` + `adapter_model.safetensors`) dentro de `ComfyUI-AceStep_SFT/Loras/`
+2. Reinicie o ComfyUI — a conversão roda automaticamente na inicialização
+3. Verifique no console a mensagem `[AceStep SFT] Converted PEFT/DoRA → ComfyUI: ...`
+4. O arquivo convertido aparece como `*_comfyui.safetensors` no dropdown
 
 ### Geração Lenta
 

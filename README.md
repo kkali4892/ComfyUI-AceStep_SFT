@@ -97,6 +97,9 @@ The node supports three classifier-free guidance modes, each with unique charact
 - **Chainable LoRA Loader**: Stack one or more AceStep LoRAs before generation
 - **Separate strengths**: Independent `strength_model` and `strength_clip`
 - **Single Generate input**: Final LoRA stack plugs into the `lora` input on Generate
+- **Local `Loras/` folder**: Drop LoRA files directly into the node's `Loras/` folder — they are automatically registered at startup
+- **Auto PEFT/DoRA conversion**: PEFT-format LoRAs (`adapter_config.json` + `adapter_model.safetensors`) placed in `Loras/` are automatically converted to ComfyUI format on first startup
+- **DoRA support**: Full DoRA (Weight-Decomposed Low-Rank Adaptation) support with automatic `dora_scale` dimension fix for ComfyUI compatibility
 
 ### 🛠️ Latent Post-processing
 
@@ -145,7 +148,16 @@ ComfyUI/models/vae/                  # VAE
 ComfyUI/models/loras/                # Optional AceStep 1.5 LoRAs
 ```
 
-3. Restart ComfyUI - the node will appear under `audio/AceStep SFT`
+3. **(Optional) Place LoRAs in the local folder:**
+```
+ComfyUI/custom_nodes/ComfyUI-AceStep_SFT/Loras/   # Local LoRA folder
+```
+   You can place LoRAs here in **any** of these formats:
+   - **ComfyUI format**: Single `.safetensors` file (ready to use)
+   - **PEFT/DoRA format**: A folder containing `adapter_config.json` + `adapter_model.safetensors` (auto-converted on startup)
+   - **Nested zip artifacts**: If your zip extracted a folder-inside-folder, the node detects this and fixes it automatically
+
+4. Restart ComfyUI - the node will appear under `audio/AceStep SFT`
 
 ## 🧩 Available Nodes
 
@@ -178,13 +190,26 @@ Outputs:
 Chainable utility node that builds a LoRA stack for AceStep 1.5 SFT.
 
 Inputs:
-- `lora_name`: LoRA file from `ComfyUI/models/loras`
+- `lora_name`: LoRA file from `ComfyUI/models/loras` or the local `Loras/` folder
 - `strength_model`: strength applied to the diffusion model
 - `strength_clip`: strength applied to the text encoder stack
 - `lora` (optional): upstream AceStep LoRA stack
 
 Output:
 - `lora`: connect to another Lora Loader or directly into Generate
+
+#### Supported LoRA Formats
+
+| Format | What to place in `Loras/` | Action |
+|--------|--------------------------|--------|
+| ComfyUI `.safetensors` | Single file | Used directly |
+| PEFT/DoRA directory | Folder with `adapter_config.json` + `adapter_model.safetensors` | Auto-converted to `*_comfyui.safetensors` on startup |
+| Nested zip artifact | Folder containing a `.safetensors` inside | Auto-extracted to root on startup |
+
+The auto-conversion handles:
+- Key remapping: `lora_A`/`lora_B` → `lora_down`/`lora_up`
+- DoRA support: `lora_magnitude_vector` → `dora_scale` (with correct 2D shape)
+- Per-layer alpha injection from `adapter_config.json` (supports `alpha_pattern` and `rank_pattern`)
 
 ## 🎛️ Node Parameters
 
@@ -510,6 +535,20 @@ AceStepSFTGenerate:
 2. Set `strength_clip` to `0.0` unless the LoRA explicitly targets the text encoders
 3. Compare `guidance_mode: "standard_cfg"` vs `"apg"` for that LoRA
 4. Avoid stacking multiple strong LoRAs at full strength
+
+### LoRA Dimension Mismatch Error (`The size of tensor a must match...`)
+
+**Cause**: DoRA LoRAs store `dora_scale` as a 1D tensor `[N]`. ComfyUI's `weight_decompose` divides it by `weight_norm [N,1]`, which causes PyTorch to broadcast `[1,N]/[N,1]` → `[N,N]` instead of the expected `[N,1]`.
+
+**Solution**: This is automatically fixed by the node — all `dora_scale` tensors are unsqueezed to 2D `[N,1]` at load time. If you still see this error, ensure you are using the latest version of this node.
+
+### PEFT/DoRA LoRA Not Showing in Dropdown
+
+**Solution**:
+1. Place the PEFT folder (containing `adapter_config.json` + `adapter_model.safetensors`) inside `ComfyUI-AceStep_SFT/Loras/`
+2. Restart ComfyUI — the conversion runs automatically on startup
+3. Check the console for `[AceStep SFT] Converted PEFT/DoRA → ComfyUI: ...` message
+4. The converted file appears as `*_comfyui.safetensors` in the dropdown
 
 ### Slow Generation
 

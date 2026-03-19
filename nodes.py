@@ -308,6 +308,7 @@ def _estimate_duration_from_lyrics(lyrics, bpm=120):
 
     section_bars = 0
     words = 0
+    lyric_lines = 0
     for line in lines:
         if line.startswith("[") and line.endswith("]"):
             tag = line[1:-1].lower().strip()
@@ -324,22 +325,37 @@ def _estimate_duration_from_lyrics(lyrics, bpm=120):
                 normalized = (normalized[:start] + " " + normalized[end + 1:]).strip()
             else:
                 break
-        words += len([w for w in normalized.split() if w])
+        line_words = len([w for w in normalized.split() if w])
+        if line_words > 0:
+            lyric_lines += 1
+        words += line_words
 
-    # Conservative delivery for rap/funk-like dense lyrics.
-    words_per_second = 2.0
-    lyric_seconds = words / words_per_second
+    # Adapt delivery rate to BPM.
+    effective_bpm = max(70, min(200, bpm if bpm > 0 else 120))
+    if effective_bpm >= 140:
+        words_per_second = 2.5  # fast genres: rapid-fire delivery
+    elif effective_bpm >= 110:
+        words_per_second = 2.2  # moderate tempo
+    else:
+        words_per_second = 1.8  # slow ballads: drawn-out delivery
 
-    # Convert structural bars to seconds with bpm consideration.
-    effective_bpm = max(70, min(180, bpm if bpm > 0 else 120))
+    # Lyric time = raw vocal delivery + ~0.3s breath between lines.
+    lyric_seconds = words / words_per_second + lyric_lines * 0.3
+
+    # Structure time = musical bars (lyrics are sung *during* these bars).
     sec_per_bar = 240.0 / effective_bpm
     structure_seconds = section_bars * sec_per_bar
 
-    # Add safety margin for breath, transitions, adlibs.
-    total = lyric_seconds + structure_seconds + 8.0
+    # Lyrics overlap with structure, so take the longer of the two,
+    # then add a small safety margin for intro/outro/transitions.
+    total = max(lyric_seconds, structure_seconds) + 10.0
 
-    # Keep within practical range for quality/perf.
-    return max(20.0, min(round(total), 360.0))
+    estimated = max(20.0, min(round(total), 360.0))
+    print(f"[AceStep SFT] Auto-duration: {estimated}s "
+          f"({words} words, {lyric_lines} lines, "
+          f"{section_bars} section bars, {effective_bpm} BPM, "
+          f"lyric={lyric_seconds:.0f}s struct={structure_seconds:.0f}s)")
+    return estimated
 
 
 # ---------------------------------------------------------------------------
@@ -1419,6 +1435,12 @@ class AceStepSFTGenerate:
                     "loras", lora_spec["lora_name"]
                 )
                 lora_data = comfy.utils.load_torch_file(lora_path, safe_load=True)
+                # Fix 1D dora_scale tensors: ComfyUI's weight_decompose
+                # divides dora_scale by weight_norm [N,1]; a 1D [N] tensor
+                # broadcasts as [1,N]/[N,1]=[N,N] causing dimension mismatch.
+                for k in list(lora_data.keys()):
+                    if k.endswith(".dora_scale") and lora_data[k].dim() == 1:
+                        lora_data[k] = lora_data[k].unsqueeze(-1)
                 model, clip = comfy.sd.load_lora_for_models(
                     model, clip, lora_data,
                     lora_spec["strength_model"], lora_spec["strength_clip"]
@@ -1438,6 +1460,16 @@ class AceStepSFTGenerate:
             duration = source_audio["waveform"].shape[-1] / source_audio["sample_rate"]
         elif auto_duration:
             duration = _estimate_duration_from_lyrics(actual_lyrics, bpm)
+
+        # Warn when manual duration seems too short for the lyrics
+        if not auto_duration and actual_lyrics.strip().lower() != "[instrumental]":
+            suggested = _estimate_duration_from_lyrics(actual_lyrics, bpm)
+            if suggested > duration * 1.3:
+                print(
+                    f"[AceStep SFT] WARNING: Manual duration ({duration:.0f}s) may be "
+                    f"too short for these lyrics. Estimated need: ~{suggested:.0f}s. "
+                    f"Words may be truncated. Set duration=0 for auto or increase manually."
+                )
 
         latent_length = max(10, round(duration * vae_sr / 1920))
         duration = latent_length * 1920.0 / vae_sr
